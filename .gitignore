@@ -39,3 +39,7 @@ out/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Temp files
+.commit_msg.tmp
+*.tmp
