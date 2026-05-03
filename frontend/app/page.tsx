@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
   BookOpen,
   CheckCircle2,
@@ -9,12 +10,15 @@ import {
   FileText,
   FlaskConical,
   History,
+  KeyRound,
   Lightbulb,
   Microscope,
   Play,
   Sparkles,
   TrendingUp,
+  X,
 } from "lucide-react";
+import Link from "next/link";
 import { Badge, Card, CardHeader } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { CategoryFilter } from "@/components/CategoryFilter";
@@ -62,6 +66,7 @@ export default function DashboardPage() {
   const [categories, setCategories] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RunResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [activeStage, setActiveStage] = useState<number>(-1);
   const toast = useToast();
 
@@ -96,6 +101,7 @@ export default function DashboardPage() {
   const runPipeline = async () => {
     setRunning(true);
     setResult(null);
+    setError(null);
     try {
       const r = await api<RunResult>("/run", {
         method: "POST",
@@ -115,7 +121,9 @@ export default function DashboardPage() {
       );
       await refresh();
     } catch (e) {
-      toast.error(String(e), "Pipeline failed");
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      toast.error(msg, "Pipeline failed");
     } finally {
       setRunning(false);
     }
@@ -288,6 +296,9 @@ export default function DashboardPage() {
           </div>
         </div>
       </Card>
+
+      {/* Error panel — persists last failure so the user can read it */}
+      {error && !result && <PipelineErrorCard message={error} onDismiss={() => setError(null)} />}
 
       {/* Result panel */}
       {result && (
@@ -501,5 +512,101 @@ function NumInput({
       value={value}
       onChange={(e) => onChange(Math.max(0, Number(e.target.value)))}
     />
+  );
+}
+
+function PipelineErrorCard({
+  message,
+  onDismiss,
+}: {
+  message: string;
+  onDismiss: () => void;
+}) {
+  // Heuristic: detect the common Gemini-quota / missing-key cases and surface
+  // an actionable hint rather than just the raw error text.
+  const hint = useMemo(() => {
+    const m = message.toLowerCase();
+    const isOpenAIRpm =
+      (m.includes("openai api 429") || m.includes("rate_limit_exceeded")) &&
+      (m.includes("requests per min") || m.includes("rpm") || m.includes("rate limit"));
+    if (isOpenAIRpm) {
+      return {
+        kind: "openai-rpm",
+        title: "OpenAI rate limit (RPM)",
+        body: "Your OpenAI org allows very few requests per minute (often ~3 RPM). This build serializes chat requests inside each backend process and spaces them (**~35s** apart by default — hard-refresh the page if this card still mentions ~30s). Ensure `AI_SCIENTIST_OPENAI_MIN_INTERVAL_S` is not `0` in `.env`, restart the backend after changes, and confirm **GET /health** reports **version 0.1.1** so you are not on an older API build. Other apps or extra uvicorn workers using the same key share that RPM. Wait ~1 minute after errors, add billing at platform.openai.com/account/billing for higher RPM, or switch Active LLM to Groq / OpenRouter.",
+      } as const;
+    }
+    if (
+      m.includes("gemini quota") ||
+      (m.includes("429") && m.includes("gemini"))
+    ) {
+      return {
+        kind: "quota",
+        title: "Gemini hit its rate limit",
+        body: "Switch the active LLM provider to OpenAI, OpenRouter, Groq, or Anthropic in the sidebar API keys card. The pipeline will use that provider on the next run.",
+      } as const;
+    }
+    if (m.includes("api_key") || m.includes("not configured")) {
+      return {
+        kind: "missing-key",
+        title: "Missing or invalid API key",
+        body: "Open the API keys card in the sidebar (or the Settings page) and paste the key for whichever provider you want to use. Then click that provider in the 'Active LLM' row.",
+      } as const;
+    }
+    if (m.includes("openai api 401") || m.includes("openai api 403")) {
+      return {
+        kind: "openai-auth",
+        title: "OpenAI rejected the key",
+        body: "The OPENAI_API_KEY is invalid or revoked. Generate a fresh one at platform.openai.com/api-keys and re-save it in the sidebar.",
+      } as const;
+    }
+    return null;
+  }, [message]);
+
+  return (
+    <Card className="border-rose-500/40 bg-rose-500/[0.04]">
+      <div className="flex items-start gap-3">
+        <div className="grid place-items-center h-9 w-9 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-600 shrink-0">
+          <AlertTriangle className="h-4 w-4" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-3">
+            <div className="text-sm font-semibold text-ink-50">
+              {hint?.title ?? "Pipeline failed"}
+            </div>
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="text-ink-400 hover:text-ink-50 transition shrink-0 p-0.5"
+              aria-label="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {hint && (
+            <p className="text-[13px] text-ink-200 leading-relaxed mt-1">
+              {hint.body}
+            </p>
+          )}
+          <div className="mt-3 rounded-lg bg-[var(--bg-card)] border border-ink-700 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-wider text-ink-400 font-medium mb-1">
+              Server message
+            </div>
+            <code className="text-[12px] text-ink-200 leading-relaxed font-mono break-words whitespace-pre-wrap block">
+              {message}
+            </code>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link
+              href="/settings"
+              className="inline-flex items-center gap-1.5 text-[12px] font-medium text-orange-700 hover:text-orange-800 underline-offset-2 hover:underline"
+            >
+              <KeyRound className="h-3 w-3" />
+              Open Settings
+            </Link>
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }

@@ -99,7 +99,12 @@ class AIScientistPipeline:
     ) -> list[Idea]:
         ideator = Ideator(llm=self.llm, vector_store=self.vector_store)
         ideas = await ideator.generate(topic, n=n, seed_papers=list(papers))
-        scored = await asyncio.gather(*(score_idea(i, llm=self.llm) for i in ideas))
+        # OpenAI free tiers (~3 RPM) behave poorly under asyncio.gather: many tasks
+        # pile up even though the provider serializes POSTs; score sequentially so pacing stays predictable.
+        if getattr(self.llm, "name", None) == "openai":
+            scored = [await score_idea(i, llm=self.llm) for i in ideas]
+        else:
+            scored = await asyncio.gather(*(score_idea(i, llm=self.llm) for i in ideas))
         for idea, score in zip(ideas, scored):
             idea.score = score
             self.storage.save_idea(idea)

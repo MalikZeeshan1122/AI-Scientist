@@ -10,6 +10,7 @@ import {
   KeyRound,
   Loader2,
   Plus,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
@@ -220,6 +221,36 @@ export function SidebarApiKeys() {
     }
   };
 
+  const switchProvider = async (
+    name: keyof SettingsResponse["providers"]
+  ) => {
+    if (!data) return;
+    if (data.default_provider === name) return;
+    setSaving(true);
+    try {
+      const next = await api<SettingsResponse>("/settings", {
+        method: "POST",
+        body: JSON.stringify({
+          updates: { AI_SCIENTIST_DEFAULT_PROVIDER: name },
+        }),
+      });
+      setData(next);
+      toast.success(`Active provider: ${name}`, "Pipeline will use this now");
+    } catch (e) {
+      toast.error(String(e), "Couldn't switch provider");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const PROVIDER_ORDER: (keyof SettingsResponse["providers"])[] = [
+    "openai",
+    "openrouter",
+    "anthropic",
+    "google",
+    "groq",
+  ];
+
   return (
     <div className="rounded-xl border border-ink-700 bg-[var(--bg-card)] overflow-hidden">
       <button
@@ -236,8 +267,17 @@ export function SidebarApiKeys() {
             <div className="text-[12px] font-semibold text-ink-50 leading-tight tracking-tight">
               API keys
             </div>
-            <div className="text-[10px] text-ink-400 leading-tight">
-              {data ? `${configuredCount}/${SLOTS.length} configured` : "Loading…"}
+            <div className="text-[10px] text-ink-400 leading-tight truncate">
+              {data ? (
+                <>
+                  active:{" "}
+                  <span className="font-mono text-orange-600">
+                    {data.default_provider}
+                  </span>
+                </>
+              ) : (
+                "Loading…"
+              )}
             </div>
           </div>
         </div>
@@ -250,7 +290,57 @@ export function SidebarApiKeys() {
 
       {open && (
         <div className="px-3 pb-3 pt-1 space-y-2 border-t border-ink-700">
-          <div className="flex flex-wrap gap-1 mt-2">
+          {/* Active provider switcher — most important control */}
+          <div className="mt-2">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Sparkles className="h-3 w-3 text-orange-600" />
+              <span className="text-[10px] uppercase tracking-wider text-ink-400 font-medium">
+                Active LLM
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {PROVIDER_ORDER.map((p) => {
+                const info = data?.providers[p];
+                const active = data?.default_provider === p;
+                const ready = info?.configured;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    disabled={!ready || saving}
+                    onClick={() => switchProvider(p)}
+                    title={
+                      !ready
+                        ? `Add a ${p.toUpperCase()}_API_KEY first`
+                        : `Use ${p} for pipeline runs`
+                    }
+                    className={cn(
+                      "inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border transition",
+                      active
+                        ? "bg-orange-500 text-white border-orange-500"
+                        : ready
+                          ? "bg-ink-850 text-ink-200 border-ink-700 hover:border-orange-500/40 hover:text-orange-700"
+                          : "bg-ink-850 text-ink-500 border-ink-700 cursor-not-allowed opacity-60"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "h-1.5 w-1.5 rounded-full",
+                        ready ? "bg-emerald-500" : "bg-ink-500"
+                      )}
+                    />
+                    {p}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Add / rotate key */}
+          <div className="text-[10px] uppercase tracking-wider text-ink-400 font-medium pt-1">
+            Add / rotate key
+          </div>
+          <div className="flex flex-wrap gap-1">
             {SLOTS.map((s) => {
               const ok = isConfigured(s);
               const active = slot === s.envKey;

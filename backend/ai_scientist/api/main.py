@@ -25,6 +25,7 @@ from ..settings_store import (
 )
 from ..sources import UnifiedSource
 from ..storage import Storage
+from .http_errors import runtime_error_status_and_headers
 from .schemas import (
     DraftRequest,
     ExperimentRequest,
@@ -33,6 +34,17 @@ from .schemas import (
     SearchRequest,
     SettingsUpdateRequest,
 )
+
+
+def _runtime_error_http_response(exc: RuntimeError) -> JSONResponse:
+    """Translate provider ``RuntimeError`` messages into JSON + correct HTTP status."""
+    msg = str(exc)
+    status_code, headers = runtime_error_status_and_headers(msg)
+    return JSONResponse(
+        status_code=status_code,
+        content={"detail": msg, "type": "RuntimeError"},
+        headers=headers,
+    )
 
 
 def create_app() -> FastAPI:
@@ -48,12 +60,10 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(RuntimeError)
     async def runtime_error_handler(request: Request, exc: RuntimeError) -> JSONResponse:
-        # Most common: missing API key. Return 503 + a helpful message so the
-        # frontend can render it instead of seeing a CORS-stripped 500.
-        msg = str(exc)
-        status = 503 if "API_KEY" in msg or "not configured" in msg else 500
-        logger.warning("RuntimeError on %s %s: %s", request.method, request.url.path, msg)
-        return JSONResponse(status_code=status, content={"detail": msg, "type": "RuntimeError"})
+        # Missing keys / vendor rate limits → 503 so clients treat it as retryable,
+        # unlike unexpected bugs (500).
+        logger.warning("RuntimeError on %s %s: %s", request.method, request.url.path, exc)
+        return _runtime_error_http_response(exc)
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -74,7 +84,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
-        return {"status": "ok", "version": "0.1.0"}
+        return {"status": "ok", "version": "0.1.1"}
 
     @app.get("/settings")
     async def get_settings_view() -> dict[str, Any]:
@@ -134,6 +144,8 @@ def create_app() -> FastAPI:
                     "configured": bool(s.openai_api_key),
                     "key_preview": mask_secret(_val("OPENAI_API_KEY")),
                     "model": s.openai_model,
+                    "min_interval_s": s.openai_min_interval_s,
+                    "rate_limit_extra_sleep_s": s.openai_rate_limit_extra_sleep_s,
                 },
                 "openrouter": {
                     "configured": bool(s.openrouter_api_key),
@@ -211,7 +223,10 @@ def create_app() -> FastAPI:
 
     @app.post("/ideate")
     async def ideate(req: IdeateRequest):
-        ideas = await generate_ideas(req.topic, n=req.n)
+        try:
+            ideas = await generate_ideas(req.topic, n=req.n)
+        except RuntimeError as exc:
+            return _runtime_error_http_response(exc)
         for idea in ideas:
             storage.save_idea(idea, project_id=req.project_id)
         return [i.model_dump() for i in ideas]
@@ -219,7 +234,10 @@ def create_app() -> FastAPI:
     @app.post("/experiment")
     async def experiment(req: ExperimentRequest):
         pipe = AIScientistPipeline()
-        exp = await pipe.experiment(req.idea)
+        try:
+            exp = await pipe.experiment(req.idea)
+        except RuntimeError as exc:
+            return _runtime_error_http_response(exc)
         return exp.model_dump()
 
     @app.post("/draft")
@@ -231,20 +249,26 @@ def create_app() -> FastAPI:
                 if e.id == req.experiment_id:
                     exp = e
                     break
-        d = await pipe.write(req.idea, exp, related=None, fmt=DraftFormat(req.fmt))
+        try:
+            d = await pipe.write(req.idea, exp, related=None, fmt=DraftFormat(req.fmt))
+        except RuntimeError as exc:
+            return _runtime_error_http_response(exc)
         return d.model_dump()
 
     @app.post("/run")
     async def run(req: RunPipelineRequest):
         pipe = AIScientistPipeline()
-        result = await pipe.run(
-            req.topic,
-            n_papers=req.n_papers,
-            n_ideas=req.n_ideas,
-            refine_iters=req.refine_iters,
-            fmt=DraftFormat(req.fmt),
-            categories=req.categories,
-        )
+        try:
+            result = await pipe.run(
+                req.topic,
+                n_papers=req.n_papers,
+                n_ideas=req.n_ideas,
+                refine_iters=req.refine_iters,
+                fmt=DraftFormat(req.fmt),
+                categories=req.categories,
+            )
+        except RuntimeError as exc:
+            return _runtime_error_http_response(exc)
         return {
             "project": result.project.model_dump(),
             "papers": [p.model_dump() for p in result.papers],

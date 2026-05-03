@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     google_model: str = "gemini-2.0-flash"
     groq_model: str = "llama-3.3-70b-versatile"
     openai_model: str = "gpt-4o-mini"
+    # Space out chat-completions when using keys with very low RPM (common free /
+    # new-org caps like ~3 RPM → ~20s theoretical minimum for a sliding window).
+    # Default ~35s adds slack for clock jitter + concurrent consumers of the same key.
+    openai_min_interval_s: float = Field(default=35.0, ge=0.0)
+    # Extra seconds added on top of ``openai_min_interval_s`` after OpenAI returns 429,
+    # so rolling RPM windows drain before we POST again. Ignored when ``openai_min_interval_s`` is 0.
+    openai_rate_limit_extra_sleep_s: float = Field(default=8.0, ge=0.0)
     # OpenRouter brokers many backends; default to a free-tier-friendly model.
     openrouter_model: str = "openai/gpt-4o-mini"
     # Optional referer/title that OpenRouter uses for analytics + free-tier eligibility.
