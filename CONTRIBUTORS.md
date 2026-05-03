@@ -6,9 +6,9 @@ Thank you to everyone who helps improve AI Scientist.
 
 | Name | Role |
 |------|------|
-| **Muhammad Zeeshan** ([@MalikZeeshan1122](https://github.com/MalikZeeshan1122)) | Contributor |
+| **Muhammad Zeeshan** ([@MalikZeeshan1122](https://github.com/MalikZeeshan1122)) | Repository owner · maintainer |
 
-_Add yourself via pull request: add a row here and keep names alphabetically by surname if the list grows._
+Other contributors: add a row via pull request (alphabetically by surname if the list grows).
 
 ## GitHub contributor graph
 
