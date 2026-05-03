@@ -187,6 +187,10 @@ This is a working reference implementation, not a magic auto-discovery system:
 The point is to make the **pipeline** transparent and hackable, so you can swap in better
 components for any stage you care about.
 
+## Contributors
+
+Credits are listed in [**CONTRIBUTORS.md**](CONTRIBUTORS.md). GitHub also builds a [contributor graph](https://github.com/MalikZeeshan1122/AI-Scientist/graphs/contributors) from merged commits.
+
 ## License
 
 MIT.
